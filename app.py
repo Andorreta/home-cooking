@@ -1,8 +1,12 @@
 from flask import Flask, render_template, jsonify, request
+from datetime import datetime, timedelta
 import json
 import os
 import glob
 import re
+
+# Paleta de colores para distinguir menús en el calendario
+MENU_COLORS = ['#4e79a7', '#e15759', '#59a14f', '#f28e2b', '#b07aa1', '#76b7b2', '#edc948', '#ff9da7']
 
 app = Flask(__name__)
 
@@ -161,11 +165,46 @@ def process_ingredient(ingrediente, data, mandatory_map, optional_map):
 def index():
     return render_template('index.html')
 
+def get_menu_range(menu_name, menu):
+    """Devuelve (fecha_inicio, fecha_fin) del menú.
+    Usa los campos explícitos del JSON y, si no existen, los deriva
+    del nombre del archivo (semana_YYYYMMDD) y del número de días."""
+    ini = menu.get('fecha_inicio')
+    if ini:
+        try:
+            d_ini = datetime.strptime(ini, '%Y-%m-%d')
+            fin = menu.get('fecha_fin')
+            if fin:
+                d_fin = datetime.strptime(fin, '%Y-%m-%d')
+            else:
+                d_fin = d_ini + timedelta(days=max(len(menu.get('dias', [])), 1) - 1)
+            return d_ini, d_fin
+        except ValueError:
+            pass
+    match = re.match(r'^semana_(\d{8})$', menu_name)
+    if not match:
+        return None, None
+    d_ini = datetime.strptime(match.group(1), '%Y%m%d')
+    d_fin = d_ini + timedelta(days=max(len(menu.get('dias', [])), 1) - 1)
+    return d_ini, d_fin
+
 # Ruta para obtener menús
 @app.route('/api/menus')
 def get_menus():
     menus_data = load_json_files(os.path.join(DATA_DIR, 'menus'))
-    return jsonify(list(menus_data.keys()))
+    resultado = []
+    for i, name in enumerate(sorted(menus_data.keys())):
+        menu = menus_data[name]
+        d_ini, d_fin = get_menu_range(name, menu)
+        resultado.append({
+            'id': name,
+            'titulo': menu.get('titulo', name),
+            'fecha_inicio': d_ini.strftime('%Y-%m-%d') if d_ini else None,
+            'fecha_fin': d_fin.strftime('%Y-%m-%d') if d_fin else None,
+            'color': menu.get('color') or MENU_COLORS[i % len(MENU_COLORS)],
+        })
+    resultado.sort(key=lambda m: (m['fecha_inicio'] or '9999-99-99', m['id']))
+    return jsonify(resultado)
 
 # Ruta para obtener datos de un menú específico
 @app.route('/api/menu/<menu_name>')

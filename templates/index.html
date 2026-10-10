@@ -7,17 +7,27 @@
 {% block header_subtitle %}Visualización y manejo de menús semanales con recetas{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="/static/vendor/flatpickr.min.css">
 <div class="row">
     <div class="col-md-12">
         <div class="menu-card">
             <h2><i class="fas fa-calendar-week"></i> Gestor de Menús</h2>
-            <p>Seleccione un menú para ver su contenido:</p>
             
             <div class="mb-4">
-                <label for="menuSelect" class="form-label fw-bold"><i class="fas fa-list"></i> Seleccione un menú:</label>
-                <select class="form-select form-select-lg" id="menuSelect" onchange="loadMenuData(this.value)">
-                    <option value="">-- Seleccione un menú --</option>
-                </select>
+                <button class="btn btn-primary btn-lg" id="menuBtn" type="button" onclick="toggleCalendar()">
+                    <i class="fas fa-calendar-alt"></i> <span id="menuBtnLabel">Cargando...</span>
+                </button>
+            </div>
+            
+            <div id="calendar-card" class="calendar-card" style="display: none;">
+                <div class="calendar-wrap">
+                    <div id="calendar"></div>
+                    <div class="calendar-side">
+                        <div class="section-title"><i class="fas fa-palette"></i> Menús disponibles</div>
+                        <div id="calendar-legend"></div>
+                        <p class="text-muted small mt-2">Pulse un día con color para ver ese menú.</p>
+                    </div>
+                </div>
             </div>
             
             <div id="data-container">
@@ -31,21 +41,117 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/vendor/flatpickr.min.js"></script>
+<script src="/static/vendor/flatpickr-es.js"></script>
 <script>
+    let allMenus = [];
+    let fp = null;
+
     // Cargar menús disponibles al iniciar
     $(document).ready(function() {
         $.get('/api/menus')
             .done(function(data) {
-                const select = $('#menuSelect');
-                data.forEach(function(menu) {
-                    const menuName = menu.replace('.json', '').replace('semana_', 'Semana ');
-                    select.append('<option value="' + menu + '">' + menuName + '</option>');
-                });
+                allMenus = data;
+                const current = findCurrentMenu();
+                if (current) {
+                    updateButton(current);
+                    loadMenuData(current.id);
+                } else {
+                    $('#menuBtnLabel').text('No hay menús');
+                }
             })
             .fail(function() {
                 $('#data-container').html('<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> Error al cargar los menús.</div>');
             });
     });
+
+    function parseDate(s) {
+        return new Date(s + 'T00:00:00');
+    }
+
+    // Menú que cubre hoy; si no hay ninguno, el más reciente terminado
+    function findCurrentMenu() {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const withDates = allMenus.filter(m => m.fecha_inicio && m.fecha_fin);
+        const current = withDates.find(m => parseDate(m.fecha_inicio) <= today && today <= parseDate(m.fecha_fin));
+        if (current) return current;
+        const past = withDates.filter(m => parseDate(m.fecha_fin) < today);
+        return past.length ? past[past.length - 1] : withDates[0];
+    }
+
+    function menuForDate(d) {
+        return allMenus.find(m => m.fecha_inicio && m.fecha_fin &&
+            parseDate(m.fecha_inicio) <= d && d <= parseDate(m.fecha_fin));
+    }
+
+    const fmtDay = new Intl.DateTimeFormat('es-ES', { day: 'numeric' });
+    const fmtMonthYear = new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric' });
+
+    function fmtRange(m) {
+        const ini = parseDate(m.fecha_inicio), fin = parseDate(m.fecha_fin);
+        if (ini.getMonth() === fin.getMonth() && ini.getFullYear() === fin.getFullYear()) {
+            return fmtDay.format(ini) + '–' + fmtDay.format(fin) + ' de ' + fmtMonthYear.format(ini);
+        }
+        return fmtDay.format(ini) + ' de ' + fmtMonthYear.format(ini) + ' → ' + fmtDay.format(fin) + ' de ' + fmtMonthYear.format(fin);
+    }
+
+    function updateButton(m) {
+        $('#menuBtnLabel').text(m ? 'Menú del ' + fmtRange(m) : 'Sin menú activo');
+    }
+
+    function toggleCalendar() {
+        const card = $('#calendar-card');
+        if (card.is(':visible')) {
+            card.hide();
+            return;
+        }
+        card.show();
+        if (!fp) initCalendar();
+        renderLegend();
+    }
+
+    function initCalendar() {
+        flatpickr.localize(flatpickr.l10ns.es);
+        fp = flatpickr('#calendar', {
+            inline: true,
+            defaultDate: new Date(),
+            onDayCreate: function(dObj, str, instance, dayElem) {
+                const d = new Date(dayElem.dateObj.getFullYear(), dayElem.dateObj.getMonth(), dayElem.dateObj.getDate());
+                const menu = menuForDate(d);
+                if (menu) {
+                    dayElem.classList.add('menu-day');
+                    dayElem.style.setProperty('--menu-color', menu.color);
+                    dayElem.title = menu.titulo;
+                    dayElem.addEventListener('click', function() { selectMenu(menu.id); });
+                }
+            },
+            onMonthChange: function() { renderLegend(); }
+        });
+    }
+
+    // Solo los menús que tocan el mes visible (con cientos de menús la lista sigue siendo corta)
+    function renderLegend() {
+        if (!fp) return;
+        const iniMes = new Date(fp.currentYear, fp.currentMonth, 1);
+        const finMes = new Date(fp.currentYear, fp.currentMonth + 1, 0);
+        let html = '';
+        allMenus.forEach(function(m) {
+            if (!m.fecha_inicio || !m.fecha_fin) return;
+            if (parseDate(m.fecha_inicio) <= finMes && parseDate(m.fecha_fin) >= iniMes) {
+                html += '<div class="legend-item" onclick="selectMenu(\'' + m.id + '\')">' +
+                        '<span class="legend-swatch" style="background-color: ' + m.color + '"></span>' +
+                        '<span>' + fmtRange(m) + '</span></div>';
+            }
+        });
+        $('#calendar-legend').html(html || '<p class="text-muted small">No hay menús este mes</p>');
+    }
+
+    function selectMenu(id) {
+        const m = allMenus.find(x => x.id === id);
+        if (m) updateButton(m);
+        loadMenuData(id);
+        $('#calendar-card').hide();
+    }
 
     function loadMenuData(menuName) {
         if (!menuName) {
