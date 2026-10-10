@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+*.pyc
+.vscode/
+data/menus/*.json
+data/recetas/*.json

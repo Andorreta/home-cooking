@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+
+{% block title %}Gestor de Menús{% endblock %}
+
+{% block header_title %}Gestor de Menús{% endblock %}
+
+{% block header_subtitle %}Visualización y manejo de menús semanales con recetas{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="menu-card">
+            <h2><i class="fas fa-calendar-week"></i> Gestor de Menús</h2>
+            <p>Seleccione un menú para ver su contenido:</p>
+            
+            <div class="mb-4">
+                <label for="menuSelect" class="form-label fw-bold"><i class="fas fa-list"></i> Seleccione un menú:</label>
+                <select class="form-select form-select-lg" id="menuSelect" onchange="loadMenuData(this.value)">
+                    <option value="">-- Seleccione un menú --</option>
+                </select>
+            </div>
+            
+            <div id="data-container">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i> Seleccione un menú para ver su contenido.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Cargar menús disponibles al iniciar
+    $(document).ready(function() {
+        $.get('/api/menus')
+            .done(function(data) {
+                const select = $('#menuSelect');
+                data.forEach(function(menu) {
+                    const menuName = menu.replace('.json', '').replace('semana_', 'Semana ');
+                    select.append('<option value="' + menu + '">' + menuName + '</option>');
+                });
+            })
+            .fail(function() {
+                $('#data-container').html('<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> Error al cargar los menús.</div>');
+            });
+    });
+
+    function loadMenuData(menuName) {
+        if (!menuName) {
+            $('#data-container').html('<div class="alert alert-info"><i class="fas fa-info-circle"></i> Seleccione un menú para ver su contenido.</div>');
+            return;
+        }
+        
+        $.get('/api/menu/' + menuName)
+            .done(function(data) {
+                displayMenuData(data);
+            })
+            .fail(function() {
+                $('#data-container').html('<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> Error al cargar el menú.</div>');
+            });
+    }
+
+    function getRandomColor() {
+        const colors = ['#f8d7da', '#d4edda', '#d1ecf1', '#fff3cd', '#e2e3e5', '#fce4ec', '#e8f5e9', '#e3f2fd', '#fff8e1', '#f3e5f5'];
+        return colors[Math.floor(Math.random() * colors.length)];
+    }
+
+    function displayMenuData(data) {
+        const menu = data.menu;
+        let html = '<div class="menu-card">';
+        html += '<h2><i class="fas fa-calendar-alt"></i> ' + menu.titulo + '</h2>';
+        
+        // Lista de la compra
+        html += '<details class="shopping-list">';
+        html += '<summary><h4 class="mb-0"><i class="fas fa-shopping-cart"></i> Lista de la compra</h4></summary>';
+        
+        html += '<div class="row">';
+        html += '<div class="col-md-6">';
+        html += '<div class="section-title"><i class="fas fa-check-circle"></i> Obligatorios</div>';
+        html += buildShoppingListHtml(data.mandatory_ingredients);
+        html += '</div>';
+        
+        html += '<div class="col-md-6">';
+        html += '<div class="section-title"><i class="fas fa-star"></i> Opcionales</div>';
+        html += buildShoppingListHtml(data.optional_ingredients);
+        html += '</div>';
+        html += '</div>';
+        html += '</div>';
+        
+        // Plan Semanal
+        html += '<h3><i class="fas fa-utensils"></i> Plan Semanal</h3>';
+        
+        menu.dias.forEach(function(d, index, array) {
+            let dayStyle = '';
+            if (index >= array.length - 3) {
+                dayStyle = ' style="background-color: ' + getRandomColor() + ';"';
+            }
+            html += '<div class="day-card"' + dayStyle + '>';
+            html += '<h4><i class="fas fa-calendar-day"></i> ' + d.dia + '</h4>';
+            html += renderMeal('Comida', d.comida, d.id_comida, data.recetas);
+            html += renderMeal('Cena', d.cena, d.id_cena, data.recetas);
+            html += '</div>';
+        });
+        
+        html += '</div>';
+        $('#data-container').html(html);
+    }
+
+    function buildShoppingListHtml(ingredients) {
+        if (Object.keys(ingredients).length === 0) {
+            return '<p class="text-muted"><i class="fas fa-info-circle"></i> Ninguno</p>';
+        }
+        let html = '<ul class="ingredient-list">';
+        for (let ingrediente in ingredients) {
+            let qtyParts = [];
+            for (let unit in ingredients[ingrediente]) {
+                const val = ingredients[ingrediente][unit];
+                const cleanVal = Math.round(val * 100) / 100;
+                qtyParts.push(cleanVal + (unit ? ' ' + unit : ''));
+            }
+            const qtyStr = qtyParts.length > 0 ? ` (${qtyParts.join(', ')})` : '';
+            html += '<li><strong>' + ingrediente + '</strong>' + qtyStr + '</li>';
+        }
+        html += '</ul>';
+        return html;
+    }
+
+    function renderMeal(tipo, titulo, id, recetas) {
+        // Verificar si es receta de sobras
+        const esSobras = id === "sobras" || titulo.toLowerCase().includes('sobras');
+        
+        if (esSobras) {
+            return '<div class="meal-title"><i class="fas fa-utensil-spoon"></i> ' + tipo + ': ' + titulo + ' <span class="badge bg-secondary">(Recalentar)</span></div>';
+        }
+        
+        if (!id || !recetas[id]) {
+            return '<div class="meal-title"><i class="fas fa-utensil-spoon"></i> ' + tipo + ': ' + titulo + '</div>';
+        }
+        
+        const receta = recetas[id];
+        let ingHtml = '';
+        if (receta.ingredientes) {
+            for (let ingrediente in receta.ingredientes) {
+                const ingredienteData = receta.ingredientes[ingrediente];
+                let cantidad = "";
+                let opcional = false;
+                if (typeof ingredienteData === "string" || typeof ingredienteData === "number") {
+                    cantidad = ingredienteData;
+                } else if (typeof ingredienteData === "object" && ingredienteData !== null) {
+                    cantidad = ingredienteData.cantidad || "";
+                    opcional = ingredienteData.opcional === true || ingredienteData.opcional === "yes" || ingredienteData.opcional === "sí";
+                }
+                const qtyStr = cantidad ? `: ${cantidad}` : '';
+                const optStr = opcional ? ' <span class="badge bg-warning text-dark">(Opcional)</span>' : '';
+                const optionalClass = opcional ? ' optional-ingredient' : '';
+                ingHtml += '<li class="' + optionalClass + '"><strong>' + ingrediente + '</strong>' + qtyStr + optStr + '</li>';
+            }
+        }
+
+        let uteHtml = receta.utensilios ? receta.utensilios.map(u => '<li>' + u + '</li>').join('') : '';
+        let pasHtml = receta.pasos ? receta.pasos.map(p => '<li>' + p + '</li>').join('') : '';
+
+        return `\
+        <details class="recipe-card">
+            <summary><i class="fas fa-utensil-spoon"></i> <strong>` + tipo + `:</strong> ` + titulo + `</summary>
+            <div class="sub-details">
+                <div class="row">
+                    <div class="col-md-6">
+                        <details>
+                            <summary><i class="fas fa-leaf"></i> <strong>Ingredientes</strong></summary>
+                            <ul class="ingredient-list">` + ingHtml + `</ul>
+                        </details>
+                    </div>
+                    <div class="col-md-6">
+                        <details>
+                            <summary><i class="fas fa-blender"></i> <strong>Utensilios</strong></summary>
+                            <ul class="ingredient-list">` + uteHtml + `</ul>
+                        </details>
+                    </div>
+                    <div class="col-12">
+                        <details>
+                            <summary><i class="fas fa-clipboard-list"></i> <strong>Receta</strong></summary>
+                            <ol>` + pasHtml + `</ol>
+                        </details>
+                    </div>
+                </div>
+            </div>
+        </details>`;
+    }
+</script>
+{% endblock %}
