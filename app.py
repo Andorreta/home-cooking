@@ -40,6 +40,7 @@ def load_preferencias():
     defaults = {
         'restricciones': [],
         'platos_habituales': [],
+        'favoritas': [],
         'evitar_repetir_de_semanas': 4,
     }
     path = os.path.join(DATA_DIR, 'preferencias.json')
@@ -270,6 +271,11 @@ def recetas():
 def generar():
     return render_template('generar.html')
 
+# Ruta para consultar las preferencias usadas al generar
+@app.route('/api/preferencias')
+def api_preferencias():
+    return jsonify(load_preferencias())
+
 def get_menu_range(menu_name, menu):
     """Devuelve (fecha_inicio, fecha_fin) del menú.
     Usa los campos explícitos del JSON y, si no existen, los deriva
@@ -395,11 +401,16 @@ def api_generar():
     prefs = load_preferencias()
     menus_data = load_json_files(os.path.join(DATA_DIR, 'menus'))
     usados = get_recetas_usadas_recently(menus_data, fecha_inicio, prefs.get('evitar_repetir_de_semanas', 4))
+    favoritas = set(prefs.get('favoritas', []))
 
     rango_dias = ', '.join(DIAS_SEMANA[(d_ini + timedelta(days=i)).weekday()] for i in range(n_dias))
     catalogo_txt = '\n'.join(f'{rid}: {nombre}' for rid, nombre in sorted(catalogo.items(), key=lambda x: x[1].lower()))
     habituales_txt = ', '.join(prefs.get('platos_habituales', [])) or '(sin lista)'
-    usados_txt = ', '.join(f'{rid} ({catalogo.get(rid, "?")})' for rid in sorted(usados)) or '(ninguna)'
+    usados_txt = ', '.join(
+        f'{rid} ({catalogo.get(rid, "?")})' + (' ★favorita' if rid in favoritas else '')
+        for rid in sorted(usados)
+    ) or '(ninguna)'
+    favoritas_txt = ', '.join(f'{rid} ({catalogo.get(rid, "?")})' for rid in sorted(favoritas) if rid in catalogo) or '(sin lista)'
 
     system = ('Eres el planificador de comidas de un usuario con hipersensibilidad sensorial (autismo). '
               'Respetas estrictamente sus restricciones. Respondes SOLO con JSON válido, sin explicaciones ni cercas de código.')
@@ -411,11 +422,14 @@ RESTRICCIONES OBLIGATORIAS:
 CATÁLOGO DE RECETAS DISPONIBLES (ya filtradas por utensilios; elige SOLO ids exactos de esta lista; id: nombre):
 {catalogo_txt}
 
+RECETAS YA USADAS EN LAS ÚLTIMAS {prefs.get('evitar_repetir_de_semanas', 4)} SEMANAS (procura NO repetir estas, PERO las marcadas con ★favorita sí se pueden repetir aunque sean recientes: uno nunca se cansa de lo que le gusta):
+{usados_txt}
+
+RECETAS FAVORITAS (pueden repetirse siempre, incluso si ya salieron hace poco; si encajan, alguna puede aparecer en el menú):
+{favoritas_txt}
+
 PLATOS QUE SUELE COMER (referencia de sus gustos; si existe una receta parecida en el catálogo, priorízala; si un plato de esta lista incumple las restricciones, IGNÓRALO):
 {habituales_txt}
-
-RECETAS YA USADAS EN LAS ÚLTIMAS {prefs.get('evitar_repetir_de_semanas', 4)} SEMANAS (procura NO repetir estas):
-{usados_txt}
 
 REGLAS DE COMPOSICIÓN:
 - {n_dias} elementos en "dias", en orden: {rango_dias}.

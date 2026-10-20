@@ -29,6 +29,18 @@
                 </div>
             </div>
 
+            <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
+                <button class="btn btn-outline-primary" id="prefsBtn" type="button" onclick="togglePreferencias()">
+                    <i class="fas fa-user-check"></i> Ver mis preferencias
+                </button>
+                <span class="text-muted small"><i class="fas fa-palette"></i> Los días con color en los calendarios ya tienen menú guardado.</span>
+            </div>
+
+            <div id="prefs-card" class="calendar-card" style="display: none;">
+                <div class="section-title"><i class="fas fa-user-check"></i> Preferencias y restricciones <span class="text-muted small">(data/preferencias.json)</span></div>
+                <div id="prefs-body"><p class="text-muted">Cargando...</p></div>
+            </div>
+
             <p class="text-muted small">
                 <i class="fas fa-info-circle"></i>
                 La IA elige entre las recetas guardadas respetando tus preferencias
@@ -48,6 +60,8 @@
 <script src="/static/vendor/flatpickr-es.js"></script>
 <script>
     let fpInicio = null, fpFin = null;
+    let allMenus = [];
+    let prefsLoaded = false;
 
     function isoDate(d) {
         const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -55,8 +69,31 @@
         return d.getFullYear() + '-' + m + '-' + day;
     }
 
+    function parseDate(s) {
+        return new Date(s + 'T00:00:00');
+    }
+
+    function menuForDate(d) {
+        return allMenus.find(m => m.fecha_inicio && m.fecha_fin &&
+            parseDate(m.fecha_inicio) <= d && d <= parseDate(m.fecha_fin));
+    }
+
+    // Pinta los días con menú del mismo modo que en la vista de Menús
+    function decorateDay(dayElem) {
+        const d = new Date(dayElem.dateObj.getFullYear(), dayElem.dateObj.getMonth(), dayElem.dateObj.getDate());
+        const menu = menuForDate(d);
+        if (menu) {
+            dayElem.classList.add('menu-day');
+            dayElem.style.setProperty('--menu-color', menu.color);
+            dayElem.title = menu.titulo;
+        }
+    }
+
     $(document).ready(function() {
         flatpickr.localize(flatpickr.l10ns.es);
+
+        $.get('/api/menus').done(function(data) { allMenus = data; });
+
         // Por defecto: del lunes próximo al domingo siguiente
         const hoy = new Date();
         const lunes = new Date(hoy);
@@ -66,6 +103,7 @@
 
         fpInicio = flatpickr('#fecha-inicio', {
             dateFormat: 'Y-m-d', defaultDate: lunes,
+            onDayCreate: function(dObj, str, inst, dayElem) { decorateDay(dayElem); },
             onChange: function(selected) {
                 if (selected.length && fpFin) {
                     const fin = fpFin.selectedDates[0];
@@ -75,8 +113,57 @@
                 }
             }
         });
-        fpFin = flatpickr('#fecha-fin', { dateFormat: 'Y-m-d', defaultDate: domingo });
+        fpFin = flatpickr('#fecha-fin', {
+            dateFormat: 'Y-m-d', defaultDate: domingo,
+            onDayCreate: function(dObj, str, inst, dayElem) { decorateDay(dayElem); }
+        });
     });
+
+    function togglePreferencias() {
+        const card = $('#prefs-card');
+        if (card.is(':visible')) {
+            card.hide();
+            return;
+        }
+        card.show();
+        if (!prefsLoaded) loadPreferencias();
+    }
+
+    function loadPreferencias() {
+        // Mapa id -> nombre para mostrar las favoritas con nombre bonito
+        const nombres = {};
+        function render(p) {
+            prefsLoaded = true;
+            let html = '';
+            if (p.descripcion) html += '<p class="text-muted small">' + p.descripcion + '</p>';
+            html += '<div class="section-title"><i class="fas fa-ban"></i> Restricciones</div><ul class="ingredient-list">';
+            (p.restricciones || []).forEach(function(r) { html += '<li>' + r + '</li>'; });
+            html += '</ul>';
+            if (p.favoritas && p.favoritas.length) {
+                html += '<div class="section-title"><i class="fas fa-star"></i> Recetas favoritas (se pueden repetir aunque sean recientes)</div><div>';
+                p.favoritas.forEach(function(f) {
+                    html += '<span class="pref-chip">' + (nombres[f] || f) + '</span>';
+                });
+                html += '</div>';
+            }
+            html += '<div class="section-title"><i class="fas fa-history"></i> Platos habituales</div><div>';
+            (p.platos_habituales || []).forEach(function(pl) { html += '<span class="pref-chip">' + pl + '</span>'; });
+            html += '</div>';
+            html += '<div class="section-title"><i class="fas fa-rotate"></i> Anti-repetición</div>';
+            html += '<p>No se repiten las recetas de las últimas <strong>' + (p.evitar_repetir_de_semanas || 0) + '</strong> semanas (las favoritas se salvan de la exclusión).</p>';
+            html += '<p class="text-muted small">Puedes editar este fichero en <code>data/preferencias.json</code> del servidor.</p>';
+            $('#prefs-body').html(html);
+        }
+        $.when(
+            $.get('/api/preferencias'),
+            $.get('/api/recetas').fail(function() { return []; })
+        ).done(function(prefsData, recetasData) {
+            (recetasData || []).forEach(function(r) { nombres[r.id] = r.nombre; });
+            render(prefsData);
+        }).fail(function() {
+            $('#prefs-body').html('<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> Error al cargar las preferencias.</div>');
+        });
+    }
 
     function setEstado(html) {
         $('#generar-estado').html(html);
