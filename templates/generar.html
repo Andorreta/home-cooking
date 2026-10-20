@@ -202,9 +202,14 @@
 
     function renderResultado(data) {
         const menu = data.menu;
+        let guardado;
+        if (data.modificados && data.modificados.length) {
+            guardado = 'Fusionado con los menús existentes: <code>' + data.modificados.join('</code>, <code>') + '</code>';
+        } else {
+            guardado = 'Guardado en <code>data/menus/' + data.creado + '</code>' + (data.sobrescrito ? ' (ha sobrescrito un menú existente)' : '');
+        }
         let html = '<div class="alert alert-success"><i class="fas fa-check-circle"></i> ' +
-                   'Guardado en <code>data/menus/' + data.archivo + '</code>' +
-                   (data.sobrescrito ? ' (ha sobrescrito un menú existente)' : '') +
+                   guardado +
                    ' &mdash; <a href="/">ver en la vista de Menús</a></div>';
         html += '<div class="recipe-detail">';
         html += '<h3><i class="fas fa-calendar-alt"></i> ' + menu.titulo + '</h3>';

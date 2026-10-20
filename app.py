@@ -489,15 +489,83 @@ DEVUELVE EXACTAMENTE este JSON:
             ],
         }
 
-        os.makedirs(os.path.join(DATA_DIR, 'menus'), exist_ok=True)
-        archivo = f'semana_{d_ini.strftime("%Y%m%d")}.json'
-        ruta = os.path.join(DATA_DIR, 'menus', archivo)
-        existente = os.path.exists(ruta)
-        with open(ruta, 'w', encoding='utf-8') as f:
-            json.dump(menu, f, ensure_ascii=False, indent=2)
-            f.write('\n')
+        # --- Fusionar con los menús existentes que solapen el rango ---
+        # (si no solapa ninguno, se crea un fichero nuevo)
+        solapes = []
+        for name, m in menus_data.items():
+            m_ini, m_fin = get_menu_range(name, m)
+            if m_ini and m_fin and m_ini <= d_fin and d_ini <= m_fin:
+                solapes.append((name, m, m_ini, m_fin))
 
-        return jsonify({'ok': True, 'archivo': archivo, 'sobrescrito': existente, 'menu': menu})
+        nuevo_por_fecha = {
+            d_ini + timedelta(days=i): {
+                'dia': DIAS_SEMANA[(d_ini + timedelta(days=i)).weekday()],
+                'comida': catalogo[dia['comida']],
+                'id_comida': dia['comida'],
+                'cena': catalogo[dia['cena']],
+                'id_cena': dia['cena'],
+            }
+            for i, dia in enumerate(dias)
+        }
+
+        if not solapes:
+            os.makedirs(os.path.join(DATA_DIR, 'menus'), exist_ok=True)
+            archivo = f'semana_{d_ini.strftime("%Y%m%d")}.json'
+            ruta = os.path.join(DATA_DIR, 'menus', archivo)
+            existente = os.path.exists(ruta)
+            with open(ruta, 'w', encoding='utf-8') as f:
+                json.dump(menu, f, ensure_ascii=False, indent=2)
+                f.write('\n')
+            return jsonify({'ok': True, 'creado': archivo, 'sobrescrito': existente, 'menu': menu})
+
+        # 1) Contar cuántos días viejos sustituye cada menú del solape
+        dias_por_fecha = {}   # nombre -> {fecha: entrada}
+        sustituidos = {}
+        for name, m, m_ini, m_fin in solapes:
+            entradas = {}
+            for i, entrada in enumerate(m.get('dias', [])):
+                entradas[m_ini + timedelta(days=i)] = entrada
+            dias_por_fecha[name] = entradas
+            sustituidos[name] = sum(1 for f_ in nuevo_por_fecha if m_ini <= f_ <= m_fin)
+
+        # 2) Asignar cada día nuevo: cada fecha exacta (día + mes) actualiza todos
+        #    los menús que la cubren; los días sin cubrir van al menú con menos
+        #    días sustituidos (a igualdad, el más cercano). Menús de otros meses
+        #    con el mismo número de día nunca se tocan: todo compara fechas completas.
+        asignados = {name: {} for name, _, _, _ in solapes}
+        nombres = [name for name, _, _, _ in solapes]
+        for fecha, entrada in nuevo_por_fecha.items():
+            cubren = [name for name, m, m_ini, m_fin in solapes if m_ini <= fecha <= m_fin]
+            if cubren:
+                for n in cubren:
+                    asignados[n][fecha] = entrada
+            else:
+                def distancia(n):
+                    fs = sorted(dias_por_fecha[n])
+                    if fecha < fs[0]:
+                        return (fs[0] - fecha).days
+                    if fecha > fs[-1]:
+                        return (fecha - fs[-1]).days
+                    return 0
+                asignados[min(nombres, key=lambda n: (sustituidos[n], distancia(n)))][fecha] = entrada
+
+        # 3) Reescribir cada menú afectado: sus días fuera del rango + los asignados
+        tocados = []
+        for name, m, m_ini, m_fin in solapes:
+            entradas = dict(dias_por_fecha[name])
+            for fecha, entrada in asignados[name].items():
+                entradas[fecha] = entrada
+            fechas = sorted(entradas)
+            nuevo_menu = dict(m)
+            nuevo_menu['fecha_inicio'] = fechas[0].strftime('%Y-%m-%d')
+            nuevo_menu['fecha_fin'] = fechas[-1].strftime('%Y-%m-%d')
+            nuevo_menu['dias'] = [entradas[f_] for f_ in fechas]
+            with open(os.path.join(DATA_DIR, 'menus', name + '.json'), 'w', encoding='utf-8') as f:
+                json.dump(nuevo_menu, f, ensure_ascii=False, indent=2)
+                f.write('\n')
+            tocados.append(name)
+
+        return jsonify({'ok': True, 'modificados': tocados, 'menu': menu})
 
     return jsonify({'error': f'El modelo generó un menú inválido tras 2 intentos: {error_anterior}'}), 502
 
