@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}Recetas{% endblock %}
+
+{% block header_title %}Recetas{% endblock %}
+
+{% block header_subtitle %}Consulta las recetas guardadas en el sistema{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="menu-card">
+            <h2><i class="fas fa-book-open"></i> Recetas</h2>
+
+            <div class="mb-4">
+                <button class="btn btn-primary btn-lg" id="recetaBtn" type="button" onclick="toggleRecipeList()">
+                    <i class="fas fa-list"></i> <span id="recetaBtnLabel">Cargando...</span>
+                </button>
+            </div>
+
+            <div id="recipe-list-card" class="calendar-card" style="display: none;">
+                <div class="section-title"><i class="fas fa-search"></i> Todas las recetas</div>
+                <input type="text" id="recipe-search" class="form-control mb-2" placeholder="Filtrar por nombre..." oninput="renderRecipeList()">
+                <div id="recipe-list" class="recipe-list"></div>
+            </div>
+
+            <div id="recipe-container">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i> Seleccione una receta para ver su contenido.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let allRecipes = [];
+    let currentRecipeId = null;
+
+    // Cargar el listado de recetas al iniciar
+    $(document).ready(function() {
+        $.get('/api/recetas')
+            .done(function(data) {
+                allRecipes = data;
+                if (allRecipes.length) {
+                    $('#recetaBtnLabel').text(allRecipes.length + ' recetas disponibles');
+                    renderRecipeList();
+                    // Mostrar la lista directamente y cargar la primera receta
+                    $('#recipe-list-card').show();
+                    selectRecipe(allRecipes[0].id);
+                } else {
+                    $('#recetaBtnLabel').text('No hay recetas');
+                    $('#recipe-container').html('<div class="alert alert-info"><i class="fas fa-info-circle"></i> No hay recetas guardadas en el sistema.</div>');
+                }
+            })
+            .fail(function() {
+                $('#recetaBtnLabel').text('Error');
+                $('#recipe-container').html('<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> Error al cargar las recetas.</div>');
+            });
+    });
+
+    function toggleRecipeList() {
+        const card = $('#recipe-list-card');
+        if (card.is(':visible')) {
+            card.hide();
+        } else {
+            card.show();
+            renderRecipeList();
+            $('#recipe-search').focus();
+        }
+    }
+
+    function renderRecipeList() {
+        const filtro = ($('#recipe-search').val() || '').toLowerCase();
+        let html = '';
+        allRecipes.forEach(function(r) {
+            if (filtro && r.nombre.toLowerCase().indexOf(filtro) === -1) return;
+            const active = r.id === currentRecipeId ? ' active' : '';
+            html += '<div class="recipe-list-item' + active + '" onclick="selectRecipe(\'' + r.id + '\')">' +
+                    '<i class="fas fa-utensil-spoon"></i>' + r.nombre + '</div>';
+        });
+        $('#recipe-list').html(html || '<p class="text-muted small">Ninguna receta coincide con el filtro</p>');
+    }
+
+    function selectRecipe(id) {
+        currentRecipeId = id;
+        renderRecipeList();
+        $('#recipe-list-card').hide();
+
+        $.get('/api/receta/' + id)
+            .done(function(receta) {
+                $('#recetaBtnLabel').text(receta.nombre || id);
+                displayRecipe(receta);
+            })
+            .fail(function() {
+                $('#recipe-container').html('<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> Error al cargar la receta.</div>');
+            });
+    }
+
+    // Formatea el valor de un ingrediente normalizado (string, número o {val, unit, opcional})
+    function formatIngredientValue(data) {
+        if (typeof data === 'string' || typeof data === 'number') {
+            return String(data);
+        }
+        if (data && typeof data === 'object') {
+            const parts = [];
+            if (data.val) {
+                const cleanVal = Math.round(data.val * 100) / 100;
+                parts.push(cleanVal + (data.unit ? ' ' + data.unit : ''));
+            } else if (data.unit) {
+                parts.push(data.unit);
+            }
+            return parts.join(' ');
+        }
+        return '';
+    }
+
+    function buildIngredientListHtml(ingredientes) {
+        if (!ingredientes || Object.keys(ingredientes).length === 0) {
+            return '<p class="text-muted"><i class="fas fa-info-circle"></i> Ninguno</p>';
+        }
+        let html = '<ul class="ingredient-list">';
+        for (let ingrediente in ingredientes) {
+            const data = ingredientes[ingrediente];
+            let opcional = false;
+            if (data && typeof data === 'object') {
+                opcional = data.opcional === true;
+            } else if (typeof data === 'string') {
+                opcional = data.toLowerCase() === 'opcional';
+            }
+            const qty = formatIngredientValue(data);
+            const cleanQty = (opcional && qty.toLowerCase() === 'opcional') ? '' : qty;
+            const qtyStr = cleanQty ? `: ${cleanQty}` : '';
+            const optStr = opcional ? ' <span class="badge bg-warning text-dark">(Opcional)</span>' : '';
+            const optionalClass = opcional ? ' optional-ingredient' : '';
+            html += '<li class="' + optionalClass + '"><strong>' + ingrediente + '</strong>' + qtyStr + optStr + '</li>';
+        }
+        html += '</ul>';
+        return html;
+    }
+
+    function buildUtensiliosHtml(utensilios) {
+        if (!utensilios || utensilios.length === 0) {
+            return '<p class="text-muted"><i class="fas fa-info-circle"></i> Ninguno</p>';
+        }
+        let html = '<ul class="ingredient-list">';
+        utensilios.forEach(function(u) {
+            html += '<li>' + u + '</li>';
+        });
+        html += '</ul>';
+        return html;
+    }
+
+    function displayRecipe(receta) {
+        let html = '<div class="recipe-detail">';
+        html += '<h3><i class="fas fa-utensil-spoon"></i> ' + (receta.nombre || currentRecipeId) + '</h3>';
+
+        // Arriba: ingredientes + utensilios
+        html += '<div class="row recipe-top">';
+        html += '<div class="col-md-6">';
+        html += '<div class="section-title"><i class="fas fa-leaf"></i> Ingredientes</div>';
+        html += buildIngredientListHtml(receta.ingredientes);
+        html += '</div>';
+        html += '<div class="col-md-6">';
+        html += '<div class="section-title"><i class="fas fa-blender"></i> Utensilios</div>';
+        html += buildUtensiliosHtml(receta.utensilios);
+        html += '</div>';
+        html += '</div>';
+
+        // Debajo: la receta (pasos)
+        html += '<div class="section-title"><i class="fas fa-clipboard-list"></i> Receta</div>';
+        if (receta.pasos && receta.pasos.length) {
+            html += '<ol class="recipe-steps">';
+            receta.pasos.forEach(function(p) {
+                html += '<li>' + p + '</li>';
+            });
+            html += '</ol>';
+        } else {
+            html += '<p class="text-muted"><i class="fas fa-info-circle"></i> Esta receta no tiene pasos indicados.</p>';
+        }
+
+        html += '</div>';
+        $('#recipe-container').html(html);
+    }
+</script>
+{% endblock %}

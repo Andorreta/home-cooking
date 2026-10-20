@@ -165,6 +165,11 @@ def process_ingredient(ingrediente, data, mandatory_map, optional_map):
 def index():
     return render_template('index.html')
 
+# Ruta de la vista de recetas
+@app.route('/recetas')
+def recetas():
+    return render_template('recetas.html')
+
 def get_menu_range(menu_name, menu):
     """Devuelve (fecha_inicio, fecha_fin) del menú.
     Usa los campos explícitos del JSON y, si no existen, los deriva
@@ -247,11 +252,16 @@ def get_receta(receta_id):
     else:
         return jsonify({'error': 'Receta no encontrada'}), 404
 
-# Ruta para obtener todas las recetas
+# Ruta para obtener todas las recetas (id + nombre, ordenadas alfabéticamente)
 @app.route('/api/recetas')
 def get_recetas():
     recetas_data = load_json_files(os.path.join(DATA_DIR, 'recetas'))
-    return jsonify(list(recetas_data.keys()))
+    resultado = [
+        {'id': key, 'nombre': receta.get('nombre', key)}
+        for key, receta in recetas_data.items()
+    ]
+    resultado.sort(key=lambda r: r['nombre'].lower())
+    return jsonify(resultado)
 
 if __name__ == '__main__':
     # Crear directorios de datos si no existen

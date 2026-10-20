@@ -275,3 +275,92 @@ i {
     border-radius: 4px;
     flex-shrink: 0;
 }
+
+/* ===== Navegación de vistas (Menús / Recetas) ===== */
+.view-nav {
+    display: flex;
+    gap: 10px;
+    margin-top: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.view-tab {
+    display: inline-flex;
+    align-items: center;
+    color: #fff;
+    text-decoration: none;
+    padding: 8px 20px;
+    border-radius: 50px;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.view-tab i {
+    color: #fff;
+}
+
+.view-tab:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    transform: translateY(-2px);
+}
+
+.view-tab.active {
+    background-color: #fff;
+    color: #0056b3;
+    border-color: #fff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.view-tab.active i {
+    color: #0056b3;
+}
+
+/* ===== Lista de recetas ===== */
+.recipe-list {
+    max-height: 340px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.recipe-list-item {
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.recipe-list-item:hover {
+    background-color: #f1f3f5;
+}
+
+.recipe-list-item.active {
+    background-color: #e7f1ff;
+    font-weight: 600;
+}
+
+/* ===== Detalle de receta (vista Recetas) ===== */
+.recipe-detail {
+    background-color: #fff;
+    border: 1px solid #e9ecef;
+    border-left: 4px solid #007bff;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.recipe-detail h3 {
+    margin-bottom: 1rem;
+    color: #007bff;
+}
+
+.recipe-top {
+    margin-bottom: 0.5rem;
+}
+
+.recipe-steps li {
+    margin-bottom: 10px;
+    padding-left: 5px;
+}
