@@ -61,13 +61,8 @@
 <script>
     let fpInicio = null, fpFin = null;
     let allMenus = [];
+    let recetaNombres = {};
     let prefsLoaded = false;
-
-    function isoDate(d) {
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return d.getFullYear() + '-' + m + '-' + day;
-    }
 
     function parseDate(s) {
         return new Date(s + 'T00:00:00');
@@ -89,11 +84,7 @@
         }
     }
 
-    $(document).ready(function() {
-        flatpickr.localize(flatpickr.l10ns.es);
-
-        $.get('/api/menus').done(function(data) { allMenus = data; });
-
+    function initPickers() {
         // Por defecto: del lunes próximo al domingo siguiente
         const hoy = new Date();
         const lunes = new Date(hoy);
@@ -117,6 +108,21 @@
             dateFormat: 'Y-m-d', defaultDate: domingo,
             onDayCreate: function(dObj, str, inst, dayElem) { decorateDay(dayElem); }
         });
+    }
+
+    $(document).ready(function() {
+        flatpickr.localize(flatpickr.l10ns.es);
+
+        // Cargar los menús ANTES de montar los calendarios, si no los días
+        // del primer render salen sin color (solo se pintarían al cambiar de mes)
+        $.get('/api/menus')
+            .done(function(data) { allMenus = data || []; })
+            .always(function() { initPickers(); });
+
+        // Mapa id -> nombre para el visor de preferencias
+        $.get('/api/recetas').done(function(data) {
+            (data || []).forEach(function(r) { recetaNombres[r.id] = r.nombre; });
+        });
     });
 
     function togglePreferencias() {
@@ -130,39 +136,32 @@
     }
 
     function loadPreferencias() {
-        // Mapa id -> nombre para mostrar las favoritas con nombre bonito
-        const nombres = {};
-        function render(p) {
-            prefsLoaded = true;
-            let html = '';
-            if (p.descripcion) html += '<p class="text-muted small">' + p.descripcion + '</p>';
-            html += '<div class="section-title"><i class="fas fa-ban"></i> Restricciones</div><ul class="ingredient-list">';
-            (p.restricciones || []).forEach(function(r) { html += '<li>' + r + '</li>'; });
-            html += '</ul>';
-            if (p.favoritas && p.favoritas.length) {
-                html += '<div class="section-title"><i class="fas fa-star"></i> Recetas favoritas (se pueden repetir aunque sean recientes)</div><div>';
-                p.favoritas.forEach(function(f) {
-                    html += '<span class="pref-chip">' + (nombres[f] || f) + '</span>';
-                });
+        $.get('/api/preferencias')
+            .done(function(p) {
+                prefsLoaded = true;
+                let html = '';
+                if (p.descripcion) html += '<p class="text-muted small">' + p.descripcion + '</p>';
+                html += '<div class="section-title"><i class="fas fa-ban"></i> Restricciones</div><ul class="ingredient-list">';
+                (p.restricciones || []).forEach(function(r) { html += '<li>' + r + '</li>'; });
+                html += '</ul>';
+                if (p.favoritas && p.favoritas.length) {
+                    html += '<div class="section-title"><i class="fas fa-star"></i> Recetas favoritas (se pueden repetir aunque sean recientes)</div><div>';
+                    p.favoritas.forEach(function(f) {
+                        html += '<span class="pref-chip">' + (recetaNombres[f] || f) + '</span>';
+                    });
+                    html += '</div>';
+                }
+                html += '<div class="section-title"><i class="fas fa-history"></i> Platos habituales</div><div>';
+                (p.platos_habituales || []).forEach(function(pl) { html += '<span class="pref-chip">' + pl + '</span>'; });
                 html += '</div>';
-            }
-            html += '<div class="section-title"><i class="fas fa-history"></i> Platos habituales</div><div>';
-            (p.platos_habituales || []).forEach(function(pl) { html += '<span class="pref-chip">' + pl + '</span>'; });
-            html += '</div>';
-            html += '<div class="section-title"><i class="fas fa-rotate"></i> Anti-repetición</div>';
-            html += '<p>No se repiten las recetas de las últimas <strong>' + (p.evitar_repetir_de_semanas || 0) + '</strong> semanas (las favoritas se salvan de la exclusión).</p>';
-            html += '<p class="text-muted small">Puedes editar este fichero en <code>data/preferencias.json</code> del servidor.</p>';
-            $('#prefs-body').html(html);
-        }
-        $.when(
-            $.get('/api/preferencias'),
-            $.get('/api/recetas').fail(function() { return []; })
-        ).done(function(prefsData, recetasData) {
-            (recetasData || []).forEach(function(r) { nombres[r.id] = r.nombre; });
-            render(prefsData);
-        }).fail(function() {
-            $('#prefs-body').html('<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> Error al cargar las preferencias.</div>');
-        });
+                html += '<div class="section-title"><i class="fas fa-rotate"></i> Anti-repetición</div>';
+                html += '<p>No se repiten las recetas de las últimas <strong>' + (p.evitar_repetir_de_semanas || 0) + '</strong> semanas (las favoritas se salvan de la exclusión).</p>';
+                html += '<p class="text-muted small">Puedes editar este fichero en <code>data/preferencias.json</code> del servidor.</p>';
+                $('#prefs-body').html(html);
+            })
+            .fail(function() {
+                $('#prefs-body').html('<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> Error al cargar las preferencias.</div>');
+            });
     }
 
     function setEstado(html) {
