@@ -61,7 +61,7 @@ run_app() {
     if [ -f "./venv/bin/gunicorn" ]; then
         echo -e "${GREEN}Gunicorn detectado.${NC} Inciando Flask en segundo plano..."
         pkill -f "gunicorn.*5000" &> /dev/null
-        ./venv/bin/gunicorn -w 2 -b 0.0.0.0:5000 app:app --daemon
+        ./venv/bin/gunicorn -w 2 -b 0.0.0.0:5000 app:app --daemon --timeout 300
         echo -e "${GREEN}¡Aplicación Flask corriendo en segundo plano en el puerto 5000!${NC}"
     else
         echo -e "${RED}Gunicorn no detectado.${NC} Iniciando en modo desarrollo..."

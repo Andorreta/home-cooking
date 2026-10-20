@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block title %}Generar menú{% endblock %}
+
+{% block header_title %}Generar menú{% endblock %}
+
+{% block header_subtitle %}El menú semanal lo propone la IA, respetando tus preferencias y sin repetir recetas recientes{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/vendor/flatpickr.min.css">
+<div class="row">
+    <div class="col-md-12">
+        <div class="menu-card">
+            <h2><i class="fas fa-magic"></i> Generar menú</h2>
+
+            <div class="row g-3 align-items-end mb-3">
+                <div class="col-md-4">
+                    <label class="form-label"><i class="fas fa-calendar-plus"></i> Fecha de inicio</label>
+                    <input type="text" id="fecha-inicio" class="form-control" readonly>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label"><i class="fas fa-calendar-check"></i> Fecha de fin</label>
+                    <input type="text" id="fecha-fin" class="form-control" readonly>
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-primary btn-lg w-100" id="generarBtn" type="button" onclick="generarMenu()">
+                        <i class="fas fa-wand-magic-sparkles"></i> Generar menú
+                    </button>
+                </div>
+            </div>
+
+            <p class="text-muted small">
+                <i class="fas fa-info-circle"></i>
+                La IA elige entre las recetas guardadas respetando tus preferencias
+                (<code>data/preferencias.json</code>) y evita las recetas de las últimas semanas.
+                Puede tardar uno o dos minutos.
+            </p>
+
+            <div id="generar-estado"></div>
+            <div id="generar-resultado"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/vendor/flatpickr.min.js"></script>
+<script src="/static/vendor/flatpickr-es.js"></script>
+<script>
+    let fpInicio = null, fpFin = null;
+
+    function isoDate(d) {
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return d.getFullYear() + '-' + m + '-' + day;
+    }
+
+    $(document).ready(function() {
+        flatpickr.localize(flatpickr.l10ns.es);
+        // Por defecto: del lunes próximo al domingo siguiente
+        const hoy = new Date();
+        const lunes = new Date(hoy);
+        lunes.setDate(hoy.getDate() + ((8 - hoy.getDay()) % 7 || 7));
+        const domingo = new Date(lunes);
+        domingo.setDate(lunes.getDate() + 6);
+
+        fpInicio = flatpickr('#fecha-inicio', {
+            dateFormat: 'Y-m-d', defaultDate: lunes,
+            onChange: function(selected) {
+                if (selected.length && fpFin) {
+                    const fin = fpFin.selectedDates[0];
+                    if (!fin || fin < selected[0]) {
+                        fpFin.setDate(new Date(selected[0].getTime() + 6 * 86400000), true);
+                    }
+                }
+            }
+        });
+        fpFin = flatpickr('#fecha-fin', { dateFormat: 'Y-m-d', defaultDate: domingo });
+    });
+
+    function setEstado(html) {
+        $('#generar-estado').html(html);
+    }
+
+    function generarMenu() {
+        const ini = $('#fecha-inicio').val();
+        const fin = $('#fecha-fin').val();
+        if (!ini || !fin) {
+            setEstado('<div class="alert alert-warning"><i class="fas fa-exclamation-circle"></i> Indique fecha de inicio y de fin.</div>');
+            return;
+        }
+        $('#generarBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Generando...');
+        $('#generar-resultado').empty();
+        setEstado('<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Consultando la IA... puede tardar uno o dos minutos.</div>');
+
+        $.ajax({
+            url: '/api/generar',
+            method: 'POST',
+            contentType: 'application/json',
+            timeout: 300000,
+            data: JSON.stringify({ fecha_inicio: ini, fecha_fin: fin })
+        })
+        .done(function(data) {
+            setEstado('');
+            renderResultado(data);
+        })
+        .fail(function(xhr) {
+            let msg = 'Error al generar el menú.';
+            if (xhr.responseJSON && xhr.responseJSON.error) msg = xhr.responseJSON.error;
+            setEstado('<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> ' + msg + '</div>');
+        })
+        .always(function() {
+            $('#generarBtn').prop('disabled', false).html('<i class="fas fa-wand-magic-sparkles"></i> Generar menú');
+        });
+    }
+
+    function renderResultado(data) {
+        const menu = data.menu;
+        let html = '<div class="alert alert-success"><i class="fas fa-check-circle"></i> ' +
+                   'Guardado en <code>data/menus/' + data.archivo + '</code>' +
+                   (data.sobrescrito ? ' (ha sobrescrito un menú existente)' : '') +
+                   ' &mdash; <a href="/">ver en la vista de Menús</a></div>';
+        html += '<div class="recipe-detail">';
+        html += '<h3><i class="fas fa-calendar-alt"></i> ' + menu.titulo + '</h3>';
+        menu.dias.forEach(function(d) {
+            html += '<div class="day-card">';
+            html += '<h4><i class="fas fa-calendar-day"></i> ' + d.dia + '</h4>';
+            html += '<div class="meal-title"><i class="fas fa-utensil-spoon"></i> Comida: ' + d.comida + '</div>';
+            html += '<div class="meal-title"><i class="fas fa-moon"></i> Cena: ' + d.cena + '</div>';
+            html += '</div>';
+        });
+        html += '</div>';
+        $('#generar-resultado').html(html);
+    }
+</script>
+{% endblock %}
